@@ -156,15 +156,33 @@ class ExpoMapboxNavigationViewController: UIViewController {
     }
 
     deinit {
+        // Cancel all subscriptions
         routeProgressCancellable?.cancel()
         waypointArrivalCancellable?.cancel()
         reroutingCancellable?.cancel()
         sessionCancellable?.cancel()
+        
+        // Stop navigation session
+        tripSession?.setToIdle()
+        
+        // Remove navigation view controller
+        navigationViewController?.willMove(toParent: nil)
+        navigationViewController?.view.removeFromSuperview()
+        navigationViewController?.removeFromParent()
+        navigationViewController = nil
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        Task { @MainActor in tripSession?.setToIdle() } // Stops navigation
+        
+        // Stop navigation session immediately (not in a Task)
+        tripSession?.setToIdle()
+        
+        // Clean up navigation view controller
+        navigationViewController?.willMove(toParent: nil)
+        navigationViewController?.view.removeFromSuperview()
+        navigationViewController?.removeFromParent()
+        navigationViewController = nil
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -417,6 +435,17 @@ class ExpoMapboxNavigationViewController: UIViewController {
     }
 
     func onRoutesCalculated(navigationRoutes: NavigationRoutes){
+        // Stop any existing navigation session before starting a new one
+        tripSession?.setToIdle()
+        
+        // Clean up existing navigation view controller if any
+        if navigationViewController != nil {
+            navigationViewController?.willMove(toParent: nil)
+            navigationViewController?.view.removeFromSuperview()
+            navigationViewController?.removeFromParent()
+            navigationViewController = nil
+        }
+        
         onRoutesLoaded?([
             "routes": [
                 "mainRoute": convertRoute(route: navigationRoutes.mainRoute.route),
