@@ -78,6 +78,8 @@ class ExpoMapboxNavigationViewController: UIViewController {
     private var reroutingCancellable: AnyCancellable? = nil
     private var sessionCancellable: AnyCancellable? = nil
 
+    var currentUIStyle: String? = nil
+
     init() {
         super.init(nibName: nil, bundle: nil)
         mapboxNavigation = ExpoMapboxNavigationViewController.navigationProvider.mapboxNavigation
@@ -164,6 +166,11 @@ class ExpoMapboxNavigationViewController: UIViewController {
     required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
         fatalError("This controller should not be loaded through a story board")
+    }
+
+    func setUIStyle(style: String?) {
+        currentUIStyle = style
+        update()
     }
 
     func addCustomRasterLayer() {
@@ -419,11 +426,13 @@ class ExpoMapboxNavigationViewController: UIViewController {
         bottomBanner.distanceFormatter.locale = currentLocale
         bottomBanner.dateFormatter.locale = currentLocale
 
+        let uiStyles: [Style] = currentUIStyle == "night" ? [NightStyle()] : [DayStyle()]    
+
         let navigationOptions = NavigationOptions(
             mapboxNavigation: self.mapboxNavigation!,
             voiceController: ExpoMapboxNavigationViewController.navigationProvider.routeVoiceController,
             eventsManager: ExpoMapboxNavigationViewController.navigationProvider.eventsManager(),
-            styles: [DayStyle()],
+            styles: uiStyles,
             topBanner: topBanner,
             bottomBanner: bottomBanner
         )
