@@ -215,18 +215,27 @@ class ExpoMapboxNavigationViewController: UIViewController {
         // Mark as inactive to prevent event dispatching
         isActive = false
 
-        // Stop navigation session on main thread
-        Task { @MainActor in
-            self.tripSession?.setToIdle()
-
-            // Clean up navigation view controller
-            if let navVC = self.navigationViewController {
-                navVC.willMove(toParent: nil)
-                navVC.view.removeFromSuperview()
-                navVC.removeFromParent()
+        // Clean up synchronously on main thread if already on it, otherwise async
+        if Thread.isMainThread {
+            cleanupNavigationSession()
+        } else {
+            DispatchQueue.main.sync {
+                cleanupNavigationSession()
             }
-            self.navigationViewController = nil
         }
+    }
+
+    private func cleanupNavigationSession() {
+        // This must be called on main thread
+        tripSession?.setToIdle()
+
+        // Clean up navigation view controller
+        if let navVC = navigationViewController {
+            navVC.willMove(toParent: nil)
+            navVC.view.removeFromSuperview()
+            navVC.removeFromParent()
+        }
+        navigationViewController = nil
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -357,20 +366,31 @@ class ExpoMapboxNavigationViewController: UIViewController {
 
     func setInitialLocation(location: CLLocationCoordinate2D, zoom: Double?){
         initialLocation = location
-        initialLocationZoom = zoom
+        // Validate zoom value to prevent NaN errors
+        if let zoom = zoom, !zoom.isNaN && !zoom.isInfinite && zoom > 0 {
+            initialLocationZoom = zoom
+        } else {
+            initialLocationZoom = 15 // Default zoom
+        }
         let navigationMapView = navigationViewController?.navigationMapView
         if(initialLocation != nil && navigationMapView != nil){
-            navigationMapView!.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialLocation!, zoom: initialLocationZoom ?? 15))
+            let validZoom = initialLocationZoom ?? 15
+            navigationMapView!.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialLocation!, zoom: validZoom))
         }
     }
 
     func setFollowingZoom(followingZoom: Double?){
         let navigationMapView = navigationViewController?.navigationMapView
-        currentFollowingZoom = followingZoom
-        if(navigationMapView != nil && followingZoom != nil){
-            let newDataSource = MobileViewportDataSource(navigationMapView!.mapView)
-            newDataSource.options.followingCameraOptions.zoomRange = followingZoom!...followingZoom!
-            navigationMapView?.navigationCamera.viewportDataSource = newDataSource
+        // Validate zoom value to prevent NaN errors
+        if let zoom = followingZoom, !zoom.isNaN && !zoom.isInfinite && zoom > 0 {
+            currentFollowingZoom = zoom
+            if(navigationMapView != nil){
+                let newDataSource = MobileViewportDataSource(navigationMapView!.mapView)
+                newDataSource.options.followingCameraOptions.zoomRange = zoom...zoom
+                navigationMapView?.navigationCamera.viewportDataSource = newDataSource
+            }
+        } else {
+            currentFollowingZoom = nil
         }
     }
 
@@ -546,7 +566,14 @@ class ExpoMapboxNavigationViewController: UIViewController {
         navigationMapView!.puckType = .puck2D(.navigationDefault)
 
         if(initialLocation != nil){
-            navigationMapView!.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialLocation!, zoom: initialLocationZoom ?? 15))
+            // Validate zoom to prevent NaN errors
+            let validZoom: Double
+            if let zoom = initialLocationZoom, !zoom.isNaN && !zoom.isInfinite && zoom > 0 {
+                validZoom = zoom
+            } else {
+                validZoom = 15
+            }
+            navigationMapView!.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialLocation!, zoom: validZoom))
         }
 
         let style = currentMapStyle != nil ? StyleURI(rawValue: currentMapStyle!) : StyleURI.streets
