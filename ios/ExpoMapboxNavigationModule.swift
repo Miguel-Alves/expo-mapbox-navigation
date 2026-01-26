@@ -84,6 +84,10 @@ public class ExpoMapboxNavigationModule: Module {
         view.controller.setFollowingZoom(followingZoom: followingZoom)
       }
 
+      Prop("uiStyle") { (view: ExpoMapboxNavigationView, uiStyle: String?) in
+        view.controller.setUIStyle(style: uiStyle)
+      }
+
       AsyncFunction("recenterMap") { (view: ExpoMapboxNavigationView) in
         view.controller.recenterMap()
       }

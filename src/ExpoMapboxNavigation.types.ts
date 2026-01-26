@@ -67,4 +67,5 @@ export type ExpoMapboxNavigationViewProps = {
     nativeEvent: { errorMessage: string };
   }) => void;
   style?: StyleProp<ViewStyle>;
+  uiStyle?: "day" | "night";
 };
