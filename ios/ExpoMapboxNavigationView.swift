@@ -177,14 +177,18 @@ class ExpoMapboxNavigationViewController: UIViewController {
         reroutingCancellable = nil
         sessionCancellable = nil
 
-        // Stop navigation session
-        tripSession?.setToIdle()
+        // Stop navigation session on main thread
+        let session = tripSession
+        let navVC = navigationViewController
+        DispatchQueue.main.async {
+            session?.setToIdle()
 
-        // Remove navigation view controller
-        if let navVC = navigationViewController {
-            navVC.willMove(toParent: nil)
-            navVC.view.removeFromSuperview()
-            navVC.removeFromParent()
+            // Remove navigation view controller
+            if let navVC = navVC {
+                navVC.willMove(toParent: nil)
+                navVC.view.removeFromSuperview()
+                navVC.removeFromParent()
+            }
         }
         navigationViewController = nil
 
@@ -211,16 +215,18 @@ class ExpoMapboxNavigationViewController: UIViewController {
         // Mark as inactive to prevent event dispatching
         isActive = false
 
-        // Stop navigation session immediately (not in a Task)
-        tripSession?.setToIdle()
+        // Stop navigation session on main thread
+        Task { @MainActor in
+            self.tripSession?.setToIdle()
 
-        // Clean up navigation view controller
-        if let navVC = navigationViewController {
-            navVC.willMove(toParent: nil)
-            navVC.view.removeFromSuperview()
-            navVC.removeFromParent()
+            // Clean up navigation view controller
+            if let navVC = self.navigationViewController {
+                navVC.willMove(toParent: nil)
+                navVC.view.removeFromSuperview()
+                navVC.removeFromParent()
+            }
+            self.navigationViewController = nil
         }
-        navigationViewController = nil
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -497,6 +503,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
         }
     }
 
+    @MainActor
     private func setupNavigationViewController(with navigationRoutes: NavigationRoutes) {
         onRoutesLoaded?([
             "routes": [
