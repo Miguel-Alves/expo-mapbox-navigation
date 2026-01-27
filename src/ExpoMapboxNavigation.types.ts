@@ -28,6 +28,13 @@ type Routes = {
   alternativeRoutes: Route[];
 };
 
+type LocationChangeEvent = {
+  latitude: number;
+  longitude: number;
+  heading?: number;
+  speed?: number;
+};
+
 export type ExpoMapboxNavigationViewRef = {
   recenterMap: () => void;
 };
@@ -42,8 +49,21 @@ export type ExpoMapboxNavigationViewProps = {
   routeExcludeList?: string[];
   mapStyle?: string;
   mute?: boolean;
+  /**
+   * Maximum height of the vehicle in meters.
+   * Used for route calculation to avoid roads with height restrictions (e.g., low bridges, tunnels).
+   */
   vehicleMaxHeight?: number;
+  /**
+   * Maximum width of the vehicle in meters.
+   * Used for route calculation to avoid roads with width restrictions.
+   */
   vehicleMaxWidth?: number;
+  /**
+   * Maximum weight of the vehicle in metric tons.
+   * Used for route calculation to avoid roads with weight restrictions (e.g., weak bridges).
+   */
+  vehicleMaxWeight?: number;
   initialLocation?: { latitude: number; longitude: number; zoom?: number };
   /**
    * The URL of the custom raster source to use for the map.
@@ -54,6 +74,24 @@ export type ExpoMapboxNavigationViewProps = {
   placeCustomRasterLayerAbove?: string;
   disableAlternativeRoutes?: boolean;
   followingZoom?: number;
+  /**
+   * Whether the navigation allows arriving on the opposite side of the street.
+   * When true, the user can complete navigation even if they're on the opposite side of the destination.
+   * Useful in urban areas where crossing the street might be difficult or unsafe.
+   * @default false
+   */
+  allowsArrivingOnOppositeSide?: boolean;
+  /**
+   * Whether to show the end-of-route feedback UI when navigation completes.
+   * When true, displays a rating/feedback screen after arriving at the destination.
+   * @default true
+   */
+  showsEndOfRouteFeedback?: boolean;
+  /**
+   * Callback fired when the user's location changes during navigation.
+   * Provides real-time updates of latitude, longitude, heading, and speed.
+   */
+  onLocationChange?: (event: { nativeEvent: LocationChangeEvent }) => void;
   onRouteProgressChanged?: (event: { nativeEvent: ProgressEvent }) => void;
   onCancelNavigation?: () => void;
   onWaypointArrival?: (event: {

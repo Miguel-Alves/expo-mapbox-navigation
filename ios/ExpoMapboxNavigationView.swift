@@ -15,6 +15,7 @@ class ExpoMapboxNavigationView: ExpoView {
     private let onUserOffRoute = EventDispatcher()
     private let onRoutesLoaded = EventDispatcher()
     private let onRouteFailedToLoad = EventDispatcher()
+    private let onLocationChange = EventDispatcher()
 
     let controller = ExpoMapboxNavigationViewController()
 
@@ -31,6 +32,7 @@ class ExpoMapboxNavigationView: ExpoView {
         controller.onUserOffRoute = onUserOffRoute
         controller.onRoutesLoaded = onRoutesLoaded
         controller.onRouteFailedToLoad = onRouteFailedToLoad
+        controller.onLocationChange = onLocationChange
     }
 
     override func layoutSubviews() {
@@ -68,6 +70,9 @@ class ExpoMapboxNavigationViewController: UIViewController {
     var isUsingRouteMatchingApi: Bool = false
     var vehicleMaxHeight: Double? = nil
     var vehicleMaxWidth: Double? = nil
+    var vehicleMaxWeight: Double? = nil
+    var allowsArrivingOnOppositeSide: Bool? = nil
+    var showsEndOfRouteFeedback: Bool? = nil
 
     var onRouteProgressChanged: EventDispatcher? = nil
     var onCancelNavigation: EventDispatcher? = nil
@@ -77,12 +82,14 @@ class ExpoMapboxNavigationViewController: UIViewController {
     var onUserOffRoute: EventDispatcher? = nil
     var onRoutesLoaded: EventDispatcher? = nil
     var onRouteFailedToLoad: EventDispatcher? = nil
+    var onLocationChange: EventDispatcher? = nil
 
     var calculateRoutesTask: Task<Void, Error>? = nil
     private var routeProgressCancellable: AnyCancellable? = nil
     private var waypointArrivalCancellable: AnyCancellable? = nil
     private var reroutingCancellable: AnyCancellable? = nil
     private var sessionCancellable: AnyCancellable? = nil
+    private var locationCancellable: AnyCancellable? = nil
 
     var currentUIStyle: String? = nil
 
@@ -159,6 +166,18 @@ class ExpoMapboxNavigationViewController: UIViewController {
             }
         }
 
+        // Subscribe to location updates
+        locationCancellable = navigation!.locationMatching.sink { [weak self] locationMatchingState in
+            guard let self = self, self.isActive, self.view.window != nil else { return }
+            let location = locationMatchingState.enhancedLocation
+            self.onLocationChange?([
+                "latitude": location.coordinate.latitude,
+                "longitude": location.coordinate.longitude,
+                "heading": location.course,
+                "speed": location.speed
+            ])
+        }
+
     }
 
     deinit {
@@ -170,12 +189,14 @@ class ExpoMapboxNavigationViewController: UIViewController {
         waypointArrivalCancellable?.cancel()
         reroutingCancellable?.cancel()
         sessionCancellable?.cancel()
+        locationCancellable?.cancel()
 
         // Nil out the cancellables
         routeProgressCancellable = nil
         waypointArrivalCancellable = nil
         reroutingCancellable = nil
         sessionCancellable = nil
+        locationCancellable = nil
 
         // Stop navigation session on main thread
         let session = tripSession
@@ -201,6 +222,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
         onUserOffRoute = nil
         onRoutesLoaded = nil
         onRouteFailedToLoad = nil
+        onLocationChange = nil
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -301,6 +323,21 @@ class ExpoMapboxNavigationViewController: UIViewController {
 
     func setVehicleMaxWidth(maxWidth: Double?) {
         vehicleMaxWidth = maxWidth
+        update()
+    }
+
+    func setVehicleMaxWeight(maxWeight: Double?) {
+        vehicleMaxWeight = maxWeight
+        update()
+    }
+
+    func setAllowsArrivingOnOppositeSide(allows: Bool?) {
+        allowsArrivingOnOppositeSide = allows
+        update()
+    }
+
+    func setShowsEndOfRouteFeedback(shows: Bool?) {
+        showsEndOfRouteFeedback = shows
         update()
     }
 
@@ -416,16 +453,24 @@ class ExpoMapboxNavigationViewController: UIViewController {
 
     func calculateRoutes(waypoints: Array<Waypoint>){
         let routeOptions = NavigationRouteOptions(
-            waypoints: waypoints, 
+            waypoints: waypoints,
             profileIdentifier: currentRouteProfile != nil ? ProfileIdentifier(rawValue: currentRouteProfile!) : nil,
             queryItems: [
                 URLQueryItem(name: "exclude", value: currentRouteExcludeList?.joined(separator: ",")),
                 URLQueryItem(name: "max_height", value: String(format: "%.1f", vehicleMaxHeight ?? 0.0)),
-                URLQueryItem(name: "max_width", value: String(format: "%.1f", vehicleMaxWidth ?? 0.0))
+                URLQueryItem(name: "max_width", value: String(format: "%.1f", vehicleMaxWidth ?? 0.0)),
+                URLQueryItem(name: "max_weight", value: String(format: "%.1f", vehicleMaxWeight ?? 0.0))
             ],
-            locale: currentLocale, 
+            locale: currentLocale,
             distanceUnit: currentLocale.usesMetricSystem ? LengthFormatter.Unit.meter : LengthFormatter.Unit.mile
         )
+
+        // Configure waypoints for arrival on opposite side if specified
+        if let allows = allowsArrivingOnOppositeSide {
+            for i in 0..<routeOptions.waypoints.count {
+                routeOptions.waypoints[i].allowsArrivingOnOppositeSide = allows
+            }
+        }
 
         calculateRoutesTask = Task {
             switch await self.routingProvider!.calculateRoutes(options: routeOptions).result {
@@ -561,6 +606,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
         navigationViewController.showsContinuousAlternatives = currentDisableAlternativeRoutes != true
         navigationViewController.usesNightStyleWhileInTunnel = false
         navigationViewController.automaticallyAdjustsStyleForTimeOfDay = false
+        navigationViewController.showsEndOfRouteFeedback = showsEndOfRouteFeedback ?? true
 
         let navigationMapView = navigationViewController.navigationMapView
         navigationMapView!.puckType = .puck2D(.navigationDefault)
