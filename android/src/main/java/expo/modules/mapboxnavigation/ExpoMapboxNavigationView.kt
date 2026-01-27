@@ -76,6 +76,7 @@ import com.mapbox.navigation.ui.maps.camera.data.FollowingFrameOptions.FocalPoin
 import com.mapbox.navigation.ui.maps.camera.data.MapboxNavigationViewportDataSource
 import com.mapbox.navigation.ui.maps.camera.lifecycle.NavigationBasicGesturesHandler
 import com.mapbox.navigation.ui.maps.camera.state.NavigationCameraState
+import com.mapbox.navigation.ui.maps.camera.state.NavigationCameraStateChangedObserver
 import com.mapbox.navigation.ui.maps.camera.transition.NavigationCameraTransitionOptions
 import com.mapbox.navigation.ui.maps.location.NavigationLocationProvider
 import com.mapbox.navigation.ui.maps.route.RouteLayerConstants.TOP_LEVEL_ROUTE_LINE_LAYER_ID
@@ -194,6 +195,8 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
     private val overviewButtonId = 5
     private val overviewButton =
             createOverviewButton(overviewButtonId, parentConstraintLayout) {
+                // Force re-evaluate before switching to overview
+                viewportDataSource.evaluate()
                 navigationCamera.requestNavigationCameraToOverview()
             }
 
@@ -201,6 +204,18 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
     private val recenterButton =
             createRecenterButton(recenterButtonId, parentConstraintLayout) {
                 navigationCamera.requestNavigationCameraToFollowing()
+            }
+
+    private val navigationCameraStateChangedObserver =
+            NavigationCameraStateChangedObserver { navigationCameraState ->
+                // shows/hide the recenter button depending on the camera state
+                when (navigationCameraState) {
+                    NavigationCameraState.TRANSITION_TO_FOLLOWING,
+                    NavigationCameraState.FOLLOWING -> recenterButton.visibility = View.GONE
+                    NavigationCameraState.TRANSITION_TO_OVERVIEW,
+                    NavigationCameraState.OVERVIEW,
+                    NavigationCameraState.IDLE -> recenterButton.visibility = View.VISIBLE
+                }
             }
 
     private val cancelButtonId = 7
@@ -342,20 +357,6 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
                     speechApi.cancel()
                     voiceInstructionsPlayer.clear()
 
-                    // Add observer to navigation camera
-                    navigationCamera.registerNavigationCameraStateChangeObserver {
-                            navigationCameraState ->
-                        // shows/hide the recenter button depending on the camera
-                        // state
-                        when (navigationCameraState) {
-                            NavigationCameraState.TRANSITION_TO_FOLLOWING,
-                            NavigationCameraState.FOLLOWING -> recenterButton.visibility = View.GONE
-                            NavigationCameraState.TRANSITION_TO_OVERVIEW,
-                            NavigationCameraState.OVERVIEW,
-                            NavigationCameraState.IDLE -> recenterButton.visibility = View.VISIBLE
-                        }
-                    }
-
                     this@ExpoMapboxNavigationView.onRouteChanged(mapOf())
                 }
             }
@@ -422,11 +423,11 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
 
                     // Dispatch location change event
                     onLocationChange(
-                            mapOf(
+                            mapOf<String, Any>(
                                     "latitude" to rawLocation.latitude,
                                     "longitude" to rawLocation.longitude,
-                                    "heading" to rawLocation.bearing,
-                                    "speed" to rawLocation.speed
+                                    "heading" to (rawLocation.bearing?.toDouble() ?: 0.0),
+                                    "speed" to (rawLocation.speed?.toDouble() ?: 0.0)
                             )
                     )
                 }
@@ -627,11 +628,16 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
             constraintLayout: ConstraintLayout
     ): ConstraintSet {
         return ConstraintSet().apply {
+            // Clone the existing layout to preserve view properties
+            clone(constraintLayout)
+
             // Add MapView constraints
             connect(mapViewId, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP)
             connect(mapViewId, ConstraintSet.BOTTOM, tripProgressViewId, ConstraintSet.TOP)
             connect(mapViewId, ConstraintSet.START, ConstraintSet.PARENT_ID, ConstraintSet.START)
             connect(mapViewId, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END)
+            constrainWidth(mapViewId, ConstraintSet.MATCH_CONSTRAINT)
+            constrainHeight(mapViewId, ConstraintSet.MATCH_CONSTRAINT)
 
             // Add ManeuverView constraints
             connect(
@@ -655,6 +661,7 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
                     ConstraintSet.END,
                     (4 * PIXEL_DENSITY).toInt()
             )
+            constrainWidth(maneuverViewId, ConstraintSet.MATCH_CONSTRAINT)
             constrainHeight(maneuverViewId, ConstraintSet.WRAP_CONTENT)
 
             // Add TripProgressView constraints
@@ -801,6 +808,7 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
         mapboxNavigation?.registerVoiceInstructionsObserver(voiceInstructionsObserver)
         mapboxNavigation?.registerArrivalObserver(arrivalObserver)
         mapboxNavigation?.registerOffRouteObserver(offRouteObserver)
+        navigationCamera.registerNavigationCameraStateChangeObserver(navigationCameraStateChangedObserver)
         mapView.location.addOnIndicatorPositionChangedListener(onIndicatorPositionChangedListener)
     }
 
@@ -812,6 +820,7 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
         mapboxNavigation?.unregisterVoiceInstructionsObserver(voiceInstructionsObserver)
         mapboxNavigation?.unregisterArrivalObserver(arrivalObserver)
         mapboxNavigation?.unregisterOffRouteObserver(offRouteObserver)
+        navigationCamera.unregisterNavigationCameraStateChangeObserver(navigationCameraStateChangedObserver)
         if (mapboxNavigation?.isDestroyed != true) {
             mapboxNavigation?.stopTripSession()
         }
