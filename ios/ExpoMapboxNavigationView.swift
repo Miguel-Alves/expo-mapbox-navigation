@@ -15,6 +15,7 @@ class ExpoMapboxNavigationView: ExpoView {
     private let onUserOffRoute = EventDispatcher()
     private let onRoutesLoaded = EventDispatcher()
     private let onRouteFailedToLoad = EventDispatcher()
+    private let onLocationChange = EventDispatcher()
 
     let controller = ExpoMapboxNavigationViewController()
 
@@ -31,6 +32,7 @@ class ExpoMapboxNavigationView: ExpoView {
         controller.onUserOffRoute = onUserOffRoute
         controller.onRoutesLoaded = onRoutesLoaded
         controller.onRouteFailedToLoad = onRouteFailedToLoad
+        controller.onLocationChange = onLocationChange
     }
 
     override func layoutSubviews() {
@@ -40,12 +42,18 @@ class ExpoMapboxNavigationView: ExpoView {
 
 
 class ExpoMapboxNavigationViewController: UIViewController {
+    // Use a shared navigation provider but create separate instances for each view
     static let navigationProvider: MapboxNavigationProvider = MapboxNavigationProvider(coreConfig: CoreConfig(routingConfig: RoutingConfig(fasterRouteDetectionConfig: Optional<FasterRouteDetectionConfig>.none),locationSource: .live ))
+
+    // Instance-specific navigation components
     var mapboxNavigation: MapboxNavigation? = nil
     var routingProvider: RoutingProvider? = nil
     var navigation: NavigationController? = nil
     var tripSession: SessionController? = nil
     var navigationViewController: NavigationViewController? = nil
+
+    // Flag to track if this instance is active
+    private var isActive: Bool = true
     
     var currentCoordinates: Array<CLLocationCoordinate2D>? = nil
     var initialLocation: CLLocationCoordinate2D? = nil
@@ -62,6 +70,9 @@ class ExpoMapboxNavigationViewController: UIViewController {
     var isUsingRouteMatchingApi: Bool = false
     var vehicleMaxHeight: Double? = nil
     var vehicleMaxWidth: Double? = nil
+    var vehicleMaxWeight: Double? = nil
+    var allowsArrivingOnOppositeSide: Bool? = nil
+    var showsEndOfRouteFeedback: Bool? = nil
 
     var onRouteProgressChanged: EventDispatcher? = nil
     var onCancelNavigation: EventDispatcher? = nil
@@ -71,12 +82,14 @@ class ExpoMapboxNavigationViewController: UIViewController {
     var onUserOffRoute: EventDispatcher? = nil
     var onRoutesLoaded: EventDispatcher? = nil
     var onRouteFailedToLoad: EventDispatcher? = nil
+    var onLocationChange: EventDispatcher? = nil
 
     var calculateRoutesTask: Task<Void, Error>? = nil
     private var routeProgressCancellable: AnyCancellable? = nil
     private var waypointArrivalCancellable: AnyCancellable? = nil
     private var reroutingCancellable: AnyCancellable? = nil
     private var sessionCancellable: AnyCancellable? = nil
+    private var locationCancellable: AnyCancellable? = nil
 
     var currentUIStyle: String? = nil
 
@@ -88,7 +101,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
         tripSession = mapboxNavigation!.tripSession()
 
         routeProgressCancellable = navigation!.routeProgress.sink {[weak self] progressState in
-            guard let self = self, self.view.window != nil else { return }
+            guard let self = self, self.isActive, self.view.window != nil else { return }
             if(progressState != nil){
 
 
@@ -97,24 +110,24 @@ class ExpoMapboxNavigationViewController: UIViewController {
                 try? self.navigationViewController?.navigationMapView?.mapView.mapboxMap.setLayerProperty(
                     for: "com.mapbox.navigation.arrow.next",
                     property: "line-color",
-                    value: "#FFFFFF" 
+                    value: "#FFFFFF"
                 )
                 try? self.navigationViewController?.navigationMapView?.mapView.mapboxMap.setLayerProperty(
                     for: "com.mapbox.navigation.arrow.next.stroke",
                     property: "line-color",
-                    value: "#FFFFFF" 
+                    value: "#FFFFFF"
                 )
                 try? self.navigationViewController?.navigationMapView?.mapView.mapboxMap.setLayerProperty(
                     for: "com.mapbox.navigation.arrow.next.symbol",
                     property: "icon-color",
-                    value: "#FFFFFF" 
+                    value: "#FFFFFF"
                 )
                 try? self.navigationViewController?.navigationMapView?.mapView.mapboxMap.setLayerProperty(
                     for: "com.mapbox.navigation.arrow.next.symbol.casing",
                     property: "icon-color",
-                    value: "#FFFFFF" 
+                    value: "#FFFFFF"
                 )
-                
+
                self.onRouteProgressChanged?([
                     "distanceRemaining": progressState!.routeProgress.distanceRemaining,
                     "distanceTraveled": progressState!.routeProgress.distanceTraveled,
@@ -125,7 +138,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
         }
 
         waypointArrivalCancellable = navigation!.waypointsArrival.sink { [weak self] arrivalStatus in
-            guard let self = self, self.view.window != nil else { return }
+            guard let self = self, self.isActive, self.view.window != nil else { return }
             let event = arrivalStatus.event
             if event is WaypointArrivalStatus.Events.ToFinalDestination {
                 self.onFinalDestinationArrival?()
@@ -135,12 +148,12 @@ class ExpoMapboxNavigationViewController: UIViewController {
         }
 
         reroutingCancellable = navigation!.rerouting.sink { [weak self] rerouteStatus in
-            guard let self = self, self.view.window != nil else { return }
-            self.onRouteChanged?()            
+            guard let self = self, self.isActive, self.view.window != nil else { return }
+            self.onRouteChanged?()
         }
 
-        sessionCancellable = tripSession!.session.sink { [weak self] session in 
-            guard let self = self, self.view.window != nil else { return }
+        sessionCancellable = tripSession!.session.sink { [weak self] session in
+            guard let self = self, self.isActive, self.view.window != nil else { return }
             let state = session.state
             switch state {
                 case .activeGuidance(let activeGuidanceState):
@@ -153,35 +166,97 @@ class ExpoMapboxNavigationViewController: UIViewController {
             }
         }
 
+        // Subscribe to location updates
+        locationCancellable = navigation!.locationMatching.sink { [weak self] locationMatchingState in
+            guard let self = self, self.isActive, self.view.window != nil else { return }
+            let location = locationMatchingState.enhancedLocation
+            self.onLocationChange?([
+                "latitude": location.coordinate.latitude,
+                "longitude": location.coordinate.longitude,
+                "heading": location.course,
+                "speed": location.speed
+            ])
+        }
+
     }
 
     deinit {
-        // Cancel all subscriptions
+        // Mark as inactive to prevent event dispatching
+        isActive = false
+
+        // Cancel all subscriptions first
         routeProgressCancellable?.cancel()
         waypointArrivalCancellable?.cancel()
         reroutingCancellable?.cancel()
         sessionCancellable?.cancel()
-        
-        // Stop navigation session
-        tripSession?.setToIdle()
-        
-        // Remove navigation view controller
-        navigationViewController?.willMove(toParent: nil)
-        navigationViewController?.view.removeFromSuperview()
-        navigationViewController?.removeFromParent()
+        locationCancellable?.cancel()
+
+        // Nil out the cancellables
+        routeProgressCancellable = nil
+        waypointArrivalCancellable = nil
+        reroutingCancellable = nil
+        sessionCancellable = nil
+        locationCancellable = nil
+
+        // Stop navigation session on main thread
+        let session = tripSession
+        let navVC = navigationViewController
+        DispatchQueue.main.async {
+            session?.setToIdle()
+
+            // Remove navigation view controller
+            if let navVC = navVC {
+                navVC.willMove(toParent: nil)
+                navVC.view.removeFromSuperview()
+                navVC.removeFromParent()
+            }
+        }
         navigationViewController = nil
+
+        // Nil out event dispatchers to prevent events after deallocation
+        onRouteProgressChanged = nil
+        onCancelNavigation = nil
+        onWaypointArrival = nil
+        onFinalDestinationArrival = nil
+        onRouteChanged = nil
+        onUserOffRoute = nil
+        onRoutesLoaded = nil
+        onRouteFailedToLoad = nil
+        onLocationChange = nil
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Reactivate when view appears
+        isActive = true
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        
-        // Stop navigation session immediately (not in a Task)
+
+        // Mark as inactive to prevent event dispatching
+        isActive = false
+
+        // Clean up synchronously on main thread if already on it, otherwise async
+        if Thread.isMainThread {
+            cleanupNavigationSession()
+        } else {
+            DispatchQueue.main.sync {
+                cleanupNavigationSession()
+            }
+        }
+    }
+
+    private func cleanupNavigationSession() {
+        // This must be called on main thread
         tripSession?.setToIdle()
-        
+
         // Clean up navigation view controller
-        navigationViewController?.willMove(toParent: nil)
-        navigationViewController?.view.removeFromSuperview()
-        navigationViewController?.removeFromParent()
+        if let navVC = navigationViewController {
+            navVC.willMove(toParent: nil)
+            navVC.view.removeFromSuperview()
+            navVC.removeFromParent()
+        }
         navigationViewController = nil
     }
 
@@ -251,6 +326,21 @@ class ExpoMapboxNavigationViewController: UIViewController {
         update()
     }
 
+    func setVehicleMaxWeight(maxWeight: Double?) {
+        vehicleMaxWeight = maxWeight
+        update()
+    }
+
+    func setAllowsArrivingOnOppositeSide(allows: Bool?) {
+        allowsArrivingOnOppositeSide = allows
+        update()
+    }
+
+    func setShowsEndOfRouteFeedback(shows: Bool?) {
+        showsEndOfRouteFeedback = shows
+        update()
+    }
+
     func setLocale(locale: String?) {
         if(locale != nil){
             currentLocale = Locale(identifier: locale!)
@@ -313,20 +403,31 @@ class ExpoMapboxNavigationViewController: UIViewController {
 
     func setInitialLocation(location: CLLocationCoordinate2D, zoom: Double?){
         initialLocation = location
-        initialLocationZoom = zoom
+        // Validate zoom value to prevent NaN errors
+        if let zoom = zoom, !zoom.isNaN && !zoom.isInfinite && zoom > 0 {
+            initialLocationZoom = zoom
+        } else {
+            initialLocationZoom = 15 // Default zoom
+        }
         let navigationMapView = navigationViewController?.navigationMapView
         if(initialLocation != nil && navigationMapView != nil){
-            navigationMapView!.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialLocation!, zoom: initialLocationZoom ?? 15))
+            let validZoom = initialLocationZoom ?? 15
+            navigationMapView!.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialLocation!, zoom: validZoom))
         }
     }
 
     func setFollowingZoom(followingZoom: Double?){
         let navigationMapView = navigationViewController?.navigationMapView
-        currentFollowingZoom = followingZoom
-        if(navigationMapView != nil && followingZoom != nil){
-            let newDataSource = MobileViewportDataSource(navigationMapView!.mapView)
-            newDataSource.options.followingCameraOptions.zoomRange = followingZoom!...followingZoom!
-            navigationMapView?.navigationCamera.viewportDataSource = newDataSource
+        // Validate zoom value to prevent NaN errors
+        if let zoom = followingZoom, !zoom.isNaN && !zoom.isInfinite && zoom > 0 {
+            currentFollowingZoom = zoom
+            if(navigationMapView != nil){
+                let newDataSource = MobileViewportDataSource(navigationMapView!.mapView)
+                newDataSource.options.followingCameraOptions.zoomRange = zoom...zoom
+                navigationMapView?.navigationCamera.viewportDataSource = newDataSource
+            }
+        } else {
+            currentFollowingZoom = nil
         }
     }
 
@@ -352,16 +453,24 @@ class ExpoMapboxNavigationViewController: UIViewController {
 
     func calculateRoutes(waypoints: Array<Waypoint>){
         let routeOptions = NavigationRouteOptions(
-            waypoints: waypoints, 
+            waypoints: waypoints,
             profileIdentifier: currentRouteProfile != nil ? ProfileIdentifier(rawValue: currentRouteProfile!) : nil,
             queryItems: [
                 URLQueryItem(name: "exclude", value: currentRouteExcludeList?.joined(separator: ",")),
                 URLQueryItem(name: "max_height", value: String(format: "%.1f", vehicleMaxHeight ?? 0.0)),
-                URLQueryItem(name: "max_width", value: String(format: "%.1f", vehicleMaxWidth ?? 0.0))
+                URLQueryItem(name: "max_width", value: String(format: "%.1f", vehicleMaxWidth ?? 0.0)),
+                URLQueryItem(name: "max_weight", value: String(format: "%.1f", vehicleMaxWeight ?? 0.0))
             ],
-            locale: currentLocale, 
+            locale: currentLocale,
             distanceUnit: currentLocale.usesMetricSystem ? LengthFormatter.Unit.meter : LengthFormatter.Unit.mile
         )
+
+        // Configure waypoints for arrival on opposite side if specified
+        if let allows = allowsArrivingOnOppositeSide {
+            for i in 0..<routeOptions.waypoints.count {
+                routeOptions.waypoints[i].allowsArrivingOnOppositeSide = allows
+            }
+        }
 
         calculateRoutesTask = Task {
             switch await self.routingProvider!.calculateRoutes(options: routeOptions).result {
@@ -435,17 +544,32 @@ class ExpoMapboxNavigationViewController: UIViewController {
     }
 
     func onRoutesCalculated(navigationRoutes: NavigationRoutes){
-        // Stop any existing navigation session before starting a new one
-        tripSession?.setToIdle()
-        
-        // Clean up existing navigation view controller if any
-        if navigationViewController != nil {
-            navigationViewController?.willMove(toParent: nil)
-            navigationViewController?.view.removeFromSuperview()
-            navigationViewController?.removeFromParent()
-            navigationViewController = nil
+        // Ensure we're on the main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.isActive else { return }
+
+            // Stop any existing navigation session before starting a new one
+            self.tripSession?.setToIdle()
+
+            // Clean up existing navigation view controller if any
+            if let existingNavVC = self.navigationViewController {
+                existingNavVC.delegate = nil
+                existingNavVC.willMove(toParent: nil)
+                existingNavVC.view.removeFromSuperview()
+                existingNavVC.removeFromParent()
+                self.navigationViewController = nil
+            }
+
+            // Small delay to ensure previous session is fully cleaned up
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self = self, self.isActive else { return }
+                self.setupNavigationViewController(with: navigationRoutes)
+            }
         }
-        
+    }
+
+    @MainActor
+    private func setupNavigationViewController(with navigationRoutes: NavigationRoutes) {
         onRoutesLoaded?([
             "routes": [
                 "mainRoute": convertRoute(route: navigationRoutes.mainRoute.route),
@@ -470,31 +594,32 @@ class ExpoMapboxNavigationViewController: UIViewController {
             bottomBanner: bottomBanner
         )
 
-        let newNavigationControllerRequired = navigationViewController == nil
+        // Always create a new NavigationViewController to avoid session conflicts
+        let newNavigationViewController = NavigationViewController(
+            navigationRoutes: navigationRoutes,
+            navigationOptions: navigationOptions
+        )
 
-        if(newNavigationControllerRequired){
-            navigationViewController = NavigationViewController(
-                navigationRoutes: navigationRoutes,
-                navigationOptions: navigationOptions
-            )
-        } else {
-            navigationViewController!.prepareViewLoading(
-                navigationRoutes: navigationRoutes,
-                navigationOptions: navigationOptions
-            )
-        }
-        
-        let navigationViewController = navigationViewController!
+        self.navigationViewController = newNavigationViewController
+        let navigationViewController = newNavigationViewController
 
         navigationViewController.showsContinuousAlternatives = currentDisableAlternativeRoutes != true
         navigationViewController.usesNightStyleWhileInTunnel = false
         navigationViewController.automaticallyAdjustsStyleForTimeOfDay = false
+        navigationViewController.showsEndOfRouteFeedback = showsEndOfRouteFeedback ?? true
 
         let navigationMapView = navigationViewController.navigationMapView
         navigationMapView!.puckType = .puck2D(.navigationDefault)
 
-        if(initialLocation != nil && newNavigationControllerRequired){
-            navigationMapView!.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialLocation!, zoom: initialLocationZoom ?? 15))
+        if(initialLocation != nil){
+            // Validate zoom to prevent NaN errors
+            let validZoom: Double
+            if let zoom = initialLocationZoom, !zoom.isNaN && !zoom.isInfinite && zoom > 0 {
+                validZoom = zoom
+            } else {
+                validZoom = 15
+            }
+            navigationMapView!.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialLocation!, zoom: validZoom))
         }
 
         let style = currentMapStyle != nil ? StyleURI(rawValue: currentMapStyle!) : StyleURI.streets
@@ -520,12 +645,19 @@ class ExpoMapboxNavigationViewController: UIViewController {
             navigationViewController.view.topAnchor.constraint(equalTo: view.topAnchor, constant: 0),
             navigationViewController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 0),
         ])
-        didMove(toParent: self)
-        mapboxNavigation!.tripSession().startActiveGuidance(with: navigationRoutes, startLegIndex: 0)
+        navigationViewController.didMove(toParent: self)
+
+        // Only start active guidance if this instance is still active
+        if isActive {
+            mapboxNavigation!.tripSession().startActiveGuidance(with: navigationRoutes, startLegIndex: 0)
+        }
     }
 }
 extension ExpoMapboxNavigationViewController: NavigationViewControllerDelegate {
     func navigationViewController(_ navigationViewController: NavigationViewController, didRerouteAlong route: Route) {
+        // Only dispatch events if this instance is still active
+        guard isActive else { return }
+
         onRoutesLoaded?([
             "routes": [
                 "mainRoute": convertRoute(route: route),

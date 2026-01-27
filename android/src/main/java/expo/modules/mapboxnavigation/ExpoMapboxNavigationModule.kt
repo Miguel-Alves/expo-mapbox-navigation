@@ -38,7 +38,8 @@ class ExpoMapboxNavigationModule : Module() {
               "onRouteChanged",
               "onUserOffRoute",
               "onRoutesLoaded",
-              "onRouteFailedToLoad"
+              "onRouteFailedToLoad",
+              "onLocationChange"
       )
 
       Prop("coordinates") { view: ExpoMapboxNavigationView, coordinates: List<Map<String, Any>> ->
@@ -59,6 +60,18 @@ class ExpoMapboxNavigationModule : Module() {
 
       Prop("vehicleMaxWidth") { view: ExpoMapboxNavigationView, maxWidth: Double? ->
         view.setVehicleMaxWidth(maxWidth)
+      }
+
+      Prop("vehicleMaxWeight") { view: ExpoMapboxNavigationView, maxWeight: Double? ->
+        view.setVehicleMaxWeight(maxWeight)
+      }
+
+      Prop("allowsArrivingOnOppositeSide") { view: ExpoMapboxNavigationView, allows: Boolean? ->
+        view.setAllowsArrivingOnOppositeSide(allows)
+      }
+
+      Prop("showsEndOfRouteFeedback") { view: ExpoMapboxNavigationView, shows: Boolean? ->
+        view.setShowsEndOfRouteFeedback(shows)
       }
 
       Prop("waypointIndices") { view: ExpoMapboxNavigationView, indices: List<Int>? ->

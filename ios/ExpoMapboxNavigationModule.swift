@@ -7,7 +7,7 @@ public class ExpoMapboxNavigationModule: Module {
     Name("ExpoMapboxNavigation")
 
     View(ExpoMapboxNavigationView.self) {
-      Events("onRouteProgressChanged", "onCancelNavigation", "onWaypointArrival", "onFinalDestinationArrival", "onRouteChanged", "onUserOffRoute", "onRoutesLoaded", "onRouteFailedToLoad")
+      Events("onRouteProgressChanged", "onCancelNavigation", "onWaypointArrival", "onFinalDestinationArrival", "onRouteChanged", "onUserOffRoute", "onRoutesLoaded", "onRouteFailedToLoad", "onLocationChange")
 
       Prop("coordinates") { (view: ExpoMapboxNavigationView, coordinates: Array<Dictionary<String, Any>>) in
          var points: Array<CLLocationCoordinate2D> = []
@@ -27,6 +27,18 @@ public class ExpoMapboxNavigationModule: Module {
 
       Prop("vehicleMaxWidth") { (view: ExpoMapboxNavigationView, maxWidth: Double?) in
           view.controller.setVehicleMaxWidth(maxWidth: maxWidth)
+      }
+
+      Prop("vehicleMaxWeight") { (view: ExpoMapboxNavigationView, maxWeight: Double?) in
+          view.controller.setVehicleMaxWeight(maxWeight: maxWeight)
+      }
+
+      Prop("allowsArrivingOnOppositeSide") { (view: ExpoMapboxNavigationView, allows: Bool?) in
+          view.controller.setAllowsArrivingOnOppositeSide(allows: allows)
+      }
+
+      Prop("showsEndOfRouteFeedback") { (view: ExpoMapboxNavigationView, shows: Bool?) in
+          view.controller.setShowsEndOfRouteFeedback(shows: shows)
       }
 
       Prop("locale") { (view: ExpoMapboxNavigationView, locale: String?) in
