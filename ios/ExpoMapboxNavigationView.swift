@@ -6,6 +6,25 @@ import MapboxDirections
 import Combine
 
 
+class PointExclusionRouteOptions: NavigationRouteOptions {
+    var pointExclusions: [String] = []
+
+    override var urlQueryItems: [URLQueryItem] {
+        var items = super.urlQueryItems
+        if !pointExclusions.isEmpty {
+            let pointValues = pointExclusions.joined(separator: ",")
+            if let existingIndex = items.firstIndex(where: { $0.name == "exclude" }) {
+                let existingValue = items[existingIndex].value ?? ""
+                let combined = existingValue.isEmpty ? pointValues : existingValue + "," + pointValues
+                items[existingIndex] = URLQueryItem(name: "exclude", value: combined)
+            } else {
+                items.append(URLQueryItem(name: "exclude", value: pointValues))
+            }
+        }
+        return items
+    }
+}
+
 class ExpoMapboxNavigationView: ExpoView {
     private let onRouteProgressChanged = EventDispatcher()
     private let onCancelNavigation = EventDispatcher()
@@ -452,11 +471,15 @@ class ExpoMapboxNavigationViewController: UIViewController {
     }
 
     func calculateRoutes(waypoints: Array<Waypoint>){
-        let routeOptions = NavigationRouteOptions(
+        // Separate point exclusions from standard road class exclusions
+        let pointExclusions = currentRouteExcludeList?.filter { $0.hasPrefix("point(") } ?? []
+        let roadClassExclusions = currentRouteExcludeList?.filter { !$0.hasPrefix("point(") } ?? []
+
+        let routeOptions = PointExclusionRouteOptions(
             waypoints: waypoints,
             profileIdentifier: currentRouteProfile != nil ? ProfileIdentifier(rawValue: currentRouteProfile!) : nil,
             queryItems: [
-                URLQueryItem(name: "exclude", value: currentRouteExcludeList?.joined(separator: ",")),
+                URLQueryItem(name: "exclude", value: roadClassExclusions.isEmpty ? nil : roadClassExclusions.joined(separator: ",")),
                 URLQueryItem(name: "max_height", value: String(format: "%.1f", vehicleMaxHeight ?? 0.0)),
                 URLQueryItem(name: "max_width", value: String(format: "%.1f", vehicleMaxWidth ?? 0.0)),
                 URLQueryItem(name: "max_weight", value: String(format: "%.1f", vehicleMaxWeight ?? 0.0))
@@ -464,6 +487,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
             locale: currentLocale,
             distanceUnit: currentLocale.usesMetricSystem ? LengthFormatter.Unit.meter : LengthFormatter.Unit.mile
         )
+        routeOptions.pointExclusions = pointExclusions
 
         // Configure waypoints for arrival on opposite side if specified
         if let allows = allowsArrivingOnOppositeSide {
