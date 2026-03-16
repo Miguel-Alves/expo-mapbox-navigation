@@ -35,6 +35,7 @@ import com.mapbox.maps.plugin.LocationPuck2D
 import com.mapbox.maps.plugin.animation.camera
 import com.mapbox.maps.plugin.locationcomponent.OnIndicatorPositionChangedListener
 import com.mapbox.maps.plugin.locationcomponent.location
+import com.mapbox.maps.plugin.scalebar.scalebar
 import com.mapbox.navigation.base.extensions.applyDefaultNavigationOptions
 import com.mapbox.navigation.base.formatter.DistanceFormatterOptions
 import com.mapbox.navigation.base.route.NavigationRoute
@@ -476,6 +477,8 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
 
             mapboxMap.loadStyle(Style.MAPBOX_STREETS) { style: Style -> mapboxStyle = style }
 
+            scalebar.enabled = false
+
             location.apply {
                 locationPuck =
                         LocationPuck2D(
@@ -767,10 +770,9 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
     }
 
     private fun createViewportDataSource(mapboxMap: MapboxMap): MapboxNavigationViewportDataSource {
-        val statusBarPadding = statusBarHeight.toDouble()
         val portraitOverviewPadding =
                 EdgeInsets(
-                        140.0 * PIXEL_DENSITY + statusBarPadding,
+                        140.0 * PIXEL_DENSITY,
                         40.0 * PIXEL_DENSITY,
                         120.0 * PIXEL_DENSITY,
                         40.0 * PIXEL_DENSITY
@@ -784,7 +786,7 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
                 )
         val portraitFollowingPadding =
                 EdgeInsets(
-                        180.0 * PIXEL_DENSITY + statusBarPadding,
+                        180.0 * PIXEL_DENSITY,
                         40.0 * PIXEL_DENSITY,
                         150.0 * PIXEL_DENSITY,
                         40.0 * PIXEL_DENSITY
@@ -821,17 +823,15 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
         navigationCamera.registerNavigationCameraStateChangeObserver(navigationCameraStateChangedObserver)
         mapView.location.addOnIndicatorPositionChangedListener(onIndicatorPositionChangedListener)
 
-        // Capture status bar height and rebuild constraints so maneuver view respects safe area
-        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
-            val systemBarsInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars())
-            if (systemBarsInsets.top > 0 && systemBarsInsets.top != statusBarHeight) {
-                statusBarHeight = systemBarsInsets.top
+        // Read status bar height and rebuild constraints so maneuver view respects safe area
+        val windowInsets = ViewCompat.getRootWindowInsets(this)
+        if (windowInsets != null) {
+            val top = windowInsets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            if (top > 0 && top != statusBarHeight) {
+                statusBarHeight = top
                 rebuildConstraints()
             }
-            insets
         }
-        // Request insets in case they're already available
-        ViewCompat.requestApplyInsets(this)
     }
 
     override fun onDetachedFromWindow() {
