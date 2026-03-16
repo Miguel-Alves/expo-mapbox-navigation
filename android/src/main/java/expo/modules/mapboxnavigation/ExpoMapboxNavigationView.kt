@@ -35,6 +35,7 @@ import com.mapbox.maps.plugin.LocationPuck2D
 import com.mapbox.maps.plugin.animation.camera
 import com.mapbox.maps.plugin.locationcomponent.OnIndicatorPositionChangedListener
 import com.mapbox.maps.plugin.locationcomponent.location
+import com.mapbox.maps.plugin.scalebar.scalebar
 import com.mapbox.navigation.base.extensions.applyDefaultNavigationOptions
 import com.mapbox.navigation.base.formatter.DistanceFormatterOptions
 import com.mapbox.navigation.base.route.NavigationRoute
@@ -91,6 +92,8 @@ import com.mapbox.navigation.voice.model.SpeechAnnouncement
 import com.mapbox.navigation.voice.model.SpeechError
 import com.mapbox.navigation.voice.model.SpeechValue
 import com.mapbox.navigation.voice.model.SpeechVolume
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import expo.modules.kotlin.AppContext
 import expo.modules.kotlin.viewevent.EventDispatcher
 import expo.modules.kotlin.views.ExpoView
@@ -131,6 +134,8 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
     private var vehicleMaxWeight: Double? = null
     private var allowsArrivingOnOppositeSide: Boolean? = null
     private var showsEndOfRouteFeedback: Boolean? = null
+    private var hideTripProgress: Boolean = false
+    private var statusBarHeight: Int = (24 * PIXEL_DENSITY).toInt()
 
     private val onRouteProgressChanged by EventDispatcher()
     private val onCancelNavigation by EventDispatcher()
@@ -472,6 +477,8 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
 
             mapboxMap.loadStyle(Style.MAPBOX_STREETS) { style: Style -> mapboxStyle = style }
 
+            scalebar.enabled = false
+
             location.apply {
                 locationPuck =
                         LocationPuck2D(
@@ -633,19 +640,24 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
 
             // Add MapView constraints
             connect(mapViewId, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP)
-            connect(mapViewId, ConstraintSet.BOTTOM, tripProgressViewId, ConstraintSet.TOP)
+            if (hideTripProgress) {
+                connect(mapViewId, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
+            } else {
+                connect(mapViewId, ConstraintSet.BOTTOM, tripProgressViewId, ConstraintSet.TOP)
+            }
             connect(mapViewId, ConstraintSet.START, ConstraintSet.PARENT_ID, ConstraintSet.START)
             connect(mapViewId, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END)
             constrainWidth(mapViewId, ConstraintSet.MATCH_CONSTRAINT)
             constrainHeight(mapViewId, ConstraintSet.MATCH_CONSTRAINT)
 
             // Add ManeuverView constraints
+            val maneuverTopMargin = statusBarHeight + (4 * PIXEL_DENSITY).toInt()
             connect(
                     maneuverViewId,
                     ConstraintSet.TOP,
                     mapViewId,
                     ConstraintSet.TOP,
-                    (4 * PIXEL_DENSITY).toInt()
+                    maneuverTopMargin
             )
             connect(
                     maneuverViewId,
@@ -810,6 +822,16 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
         mapboxNavigation?.registerOffRouteObserver(offRouteObserver)
         navigationCamera.registerNavigationCameraStateChangeObserver(navigationCameraStateChangedObserver)
         mapView.location.addOnIndicatorPositionChangedListener(onIndicatorPositionChangedListener)
+
+        // Read status bar height and rebuild constraints so maneuver view respects safe area
+        val windowInsets = ViewCompat.getRootWindowInsets(this)
+        if (windowInsets != null) {
+            val top = windowInsets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            if (top > 0 && top != statusBarHeight) {
+                statusBarHeight = top
+                rebuildConstraints()
+            }
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -918,6 +940,26 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
         showsEndOfRouteFeedback = shows
         // Note: Android Navigation SDK doesn't have a direct equivalent for showsEndOfRouteFeedback
         // This would need custom implementation if needed
+    }
+
+    fun setHideTripProgress(hide: Boolean?) {
+        hideTripProgress = hide ?: false
+        tripProgressView.visibility = if (hideTripProgress) View.GONE else View.VISIBLE
+        cancelButton.visibility = if (hideTripProgress) View.GONE else View.VISIBLE
+        rebuildConstraints()
+    }
+
+    private fun rebuildConstraints() {
+        createAndApplyConstraintSet(
+                mapViewId = mapViewId,
+                maneuverViewId = maneuverViewId,
+                tripProgressViewId = tripProgressViewId,
+                soundButtonId = soundButtonId,
+                overviewButtonId = overviewButtonId,
+                recenterButtonId = recenterButtonId,
+                cancelButtonId = cancelButtonId,
+                constraintLayout = parentConstraintLayout
+        )
     }
 
     @com.mapbox.navigation.base.ExperimentalPreviewMapboxNavigationAPI
