@@ -88,6 +88,13 @@ export type ExpoMapboxNavigationViewProps = {
    */
   showsEndOfRouteFeedback?: boolean;
   /**
+   * Whether to hide the native trip progress bar at the bottom of the navigation view.
+   * Useful when using a custom overlay to display trip progress.
+   * Android only — iOS does not render a separate trip progress bar.
+   * @default false
+   */
+  hideTripProgress?: boolean;
+  /**
    * Callback fired when the user's location changes during navigation.
    * Provides real-time updates of latitude, longitude, heading, and speed.
    */

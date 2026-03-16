@@ -74,6 +74,10 @@ class ExpoMapboxNavigationModule : Module() {
         view.setShowsEndOfRouteFeedback(shows)
       }
 
+      Prop("hideTripProgress") { view: ExpoMapboxNavigationView, hide: Boolean? ->
+        view.setHideTripProgress(hide)
+      }
+
       Prop("waypointIndices") { view: ExpoMapboxNavigationView, indices: List<Int>? ->
         view.setWaypointIndices(indices)
       }
