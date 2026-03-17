@@ -1155,11 +1155,10 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
             optionsBuilder = optionsBuilder.excludeList(currentRouteExcludeList!!)
         }
 
-        // Configure waypoints for arrival on opposite side if specified
         if (allowsArrivingOnOppositeSide != null) {
-            // Note: Mapbox Android SDK handles this through RouteOptions.arriveBy()
-            // or individual waypoint configuration. This may need adjustment based on SDK version.
-            // For now, we'll add it as a query parameter if the SDK doesn't support it directly.
+            val approach = if (allowsArrivingOnOppositeSide == true) "unrestricted" else "curb"
+            val approachesList = currentCoordinates!!.map { approach }
+            optionsBuilder = optionsBuilder.approachesList(approachesList)
         }
 
         currentRoutesRequestId =
@@ -1181,6 +1180,12 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
 
         if (currentRouteProfile != null) {
             optionsBuilder = optionsBuilder.profile(currentRouteProfile!!)
+        }
+
+        if (allowsArrivingOnOppositeSide != null) {
+            val approach = if (allowsArrivingOnOppositeSide == true) "unrestricted" else "curb"
+            val approachesList = currentCoordinates!!.map { approach }
+            optionsBuilder = optionsBuilder.approachesList(approachesList)
         }
 
         currentMapMatchingRequestId =
