@@ -90,7 +90,7 @@ export type ExpoMapboxNavigationViewProps = {
   /**
    * Whether to hide the native trip progress bar at the bottom of the navigation view.
    * Useful when using a custom overlay to display trip progress.
-   * Android only — iOS does not render a separate trip progress bar.
+   * On Android, hides the trip progress bar. On iOS, hides the bottom banner container.
    * @default false
    */
   hideTripProgress?: boolean;

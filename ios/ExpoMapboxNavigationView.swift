@@ -92,6 +92,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
     var vehicleMaxWeight: Double? = nil
     var allowsArrivingOnOppositeSide: Bool? = nil
     var showsEndOfRouteFeedback: Bool? = nil
+    var hideTripProgress: Bool = false
 
     var onRouteProgressChanged: EventDispatcher? = nil
     var onCancelNavigation: EventDispatcher? = nil
@@ -357,6 +358,11 @@ class ExpoMapboxNavigationViewController: UIViewController {
 
     func setShowsEndOfRouteFeedback(shows: Bool?) {
         showsEndOfRouteFeedback = shows
+        update()
+    }
+
+    func setHideTripProgress(hide: Bool?) {
+        hideTripProgress = hide ?? false
         update()
     }
 
@@ -656,8 +662,13 @@ class ExpoMapboxNavigationViewController: UIViewController {
         })
         
 
-        let cancelButton = navigationViewController.navigationView.bottomBannerContainerView.findViews(subclassOf: CancelButton.self)[0]
-        cancelButton.addTarget(self, action: #selector(cancelButtonClicked), for: .touchUpInside)
+        if let cancelButton = navigationViewController.navigationView.bottomBannerContainerView.findViews(subclassOf: CancelButton.self).first {
+            cancelButton.addTarget(self, action: #selector(cancelButtonClicked), for: .touchUpInside)
+        }
+
+        if hideTripProgress {
+            navigationViewController.navigationView.bottomBannerContainerView.isHidden = true
+        }
 
         navigationViewController.delegate = self
         addChild(navigationViewController)
