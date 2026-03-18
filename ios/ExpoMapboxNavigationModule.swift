@@ -41,6 +41,10 @@ public class ExpoMapboxNavigationModule: Module {
           view.controller.setShowsEndOfRouteFeedback(shows: shows)
       }
 
+      Prop("hideTripProgress") { (view: ExpoMapboxNavigationView, hide: Bool?) in
+          view.controller.setHideTripProgress(hide: hide)
+      }
+
       Prop("locale") { (view: ExpoMapboxNavigationView, locale: String?) in
           view.controller.setLocale(locale: locale)
       }
