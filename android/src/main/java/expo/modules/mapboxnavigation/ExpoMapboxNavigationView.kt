@@ -1182,12 +1182,6 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
             optionsBuilder = optionsBuilder.profile(currentRouteProfile!!)
         }
 
-        if (allowsArrivingOnOppositeSide != null) {
-            val approach = if (allowsArrivingOnOppositeSide == true) "unrestricted" else "curb"
-            val approachesList = currentCoordinates!!.map { approach }
-            optionsBuilder = optionsBuilder.approachesList(approachesList)
-        }
-
         currentMapMatchingRequestId =
                 mapboxNavigation?.requestMapMatching(
                         optionsBuilder.build(),
