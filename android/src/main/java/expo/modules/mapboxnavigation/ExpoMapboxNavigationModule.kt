@@ -39,7 +39,8 @@ class ExpoMapboxNavigationModule : Module() {
               "onUserOffRoute",
               "onRoutesLoaded",
               "onRouteFailedToLoad",
-              "onLocationChange"
+              "onLocationChange",
+              "onMuteChange"
       )
 
       Prop("coordinates") { view: ExpoMapboxNavigationView, coordinates: List<Map<String, Any>> ->

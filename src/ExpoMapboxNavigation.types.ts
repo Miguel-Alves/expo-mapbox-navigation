@@ -7,6 +7,7 @@ type ProgressEvent = {
   distanceTraveled: number;
   durationRemaining: number;
   fractionTraveled: number;
+  isMuted?: boolean;
 };
 
 type Route = {
@@ -111,6 +112,8 @@ export type ExpoMapboxNavigationViewProps = {
   onRouteFailedToLoad?: (event: {
     nativeEvent: { errorMessage: string };
   }) => void;
+  /** Fired when the user toggles the in-skin mute button, with the new muted state. */
+  onMuteChange?: (event: { nativeEvent: { isMuted: boolean; source?: string } }) => void;
   style?: StyleProp<ViewStyle>;
   uiStyle?: "day" | "night";
 };
