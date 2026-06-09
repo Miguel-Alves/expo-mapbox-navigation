@@ -1,4 +1,5 @@
 import ExpoModulesCore
+import ObjectiveC
 import MapboxNavigationCore
 import MapboxMaps
 import MapboxNavigationUIKit
@@ -35,6 +36,7 @@ class ExpoMapboxNavigationView: ExpoView {
     private let onRoutesLoaded = EventDispatcher()
     private let onRouteFailedToLoad = EventDispatcher()
     private let onLocationChange = EventDispatcher()
+    private let onMuteChange = EventDispatcher()
 
     let controller = ExpoMapboxNavigationViewController()
 
@@ -52,6 +54,7 @@ class ExpoMapboxNavigationView: ExpoView {
         controller.onRoutesLoaded = onRoutesLoaded
         controller.onRouteFailedToLoad = onRouteFailedToLoad
         controller.onLocationChange = onLocationChange
+        controller.onMuteChange = onMuteChange
     }
 
     override func layoutSubviews() {
@@ -103,6 +106,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
     var onRoutesLoaded: EventDispatcher? = nil
     var onRouteFailedToLoad: EventDispatcher? = nil
     var onLocationChange: EventDispatcher? = nil
+    var onMuteChange: EventDispatcher? = nil
 
     var calculateRoutesTask: Task<Void, Error>? = nil
     private var routeProgressCancellable: AnyCancellable? = nil
@@ -153,6 +157,7 @@ class ExpoMapboxNavigationViewController: UIViewController {
                     "distanceTraveled": progressState!.routeProgress.distanceTraveled,
                     "durationRemaining": progressState!.routeProgress.durationRemaining,
                     "fractionTraveled": progressState!.routeProgress.fractionTraveled,
+                    "isMuted": ExpoMapboxNavigationViewController.navigationProvider.routeVoiceController.speechSynthesizer.muted,
                 ])
             }
         }
@@ -542,6 +547,74 @@ class ExpoMapboxNavigationViewController: UIViewController {
         onCancelNavigation?()
     }
 
+    @objc func muteButtonTapped(_ sender: AnyObject?) {
+        // toggleMute: is async; read the settled selected state shortly after and report it.
+        guard let button = sender as? UIButton else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak button] in
+            guard let self = self, let button = button, self.isActive else { return }
+            self.onMuteChange?(["isMuted": button.isSelected, "source": "tap"])
+        }
+    }
+
+    private func findMuteButton(in navVC: NavigationViewController) -> UIButton? {
+        // Primary: reflection. The mute button is a private lazy `muteButton: FloatingButton` on the
+        // nav VC (or its OrnamentsController). object_getIvar is only called on name-matched ivars
+        // (object types), so it is safe and avoids the `allTargets` Set-bridge crash.
+        if let b = findMuteButtonReflectively(navVC) {
+            NSLog("[AudibleDirections] mute button via reflection")
+            return b
+        }
+        // Fallback: accessibilityLabel among the floating buttons.
+        var candidates: [UIButton] = navVC.navigationView.floatingStackView.arrangedSubviews
+            .compactMap { $0 as? UIButton }
+        if let fb = navVC.navigationView.floatingButtons {
+            for b in fb where !candidates.contains(where: { $0 === b }) { candidates.append(b) }
+        }
+        NSLog("[AudibleDirections] reflection miss; candidates=\(candidates.count)")
+        let muteLabels: Set<String> = ["mute", "unmute"]
+        for b in candidates {
+            if let label = b.accessibilityLabel?.lowercased(), muteLabels.contains(label) {
+                NSLog("[AudibleDirections] mute button via label=\(label)")
+                return b
+            }
+        }
+        for (i, b) in candidates.enumerated() {
+            NSLog("[AudibleDirections] btn[\(i)] class=\(String(describing: type(of: b))) label=\(b.accessibilityLabel ?? "nil")")
+        }
+        return nil
+    }
+
+    private func findMuteButtonReflectively(_ obj: AnyObject) -> UIButton? {
+        if let b = ivarValue(of: obj, nameContains: "muteButton") as? UIButton { return b }
+        if let ornaments = ivarValue(of: obj, nameContains: "rnament") {
+            if let b = ivarValue(of: ornaments, nameContains: "muteButton") as? UIButton { return b }
+        }
+        return nil
+    }
+
+    private func ivarValue(of obj: AnyObject, nameContains needle: String) -> AnyObject? {
+        var cls: AnyClass? = object_getClass(obj)
+        while let c = cls {
+            var count: UInt32 = 0
+            if let list = class_copyIvarList(c, &count) {
+                defer { free(list) }
+                for i in 0..<Int(count) {
+                    guard let cName = ivar_getName(list[i]),
+                          let name = String(validatingUTF8: cName) else { continue }
+                    // Only read object-typed ivars (encoding "@...") so object_getIvar never
+                    // misinterprets a value-type ivar (which could crash).
+                    if name.contains(needle),
+                       let encC = ivar_getTypeEncoding(list[i]),
+                       let enc = String(validatingUTF8: encC), enc.hasPrefix("@") {
+                        return object_getIvar(obj, list[i]) as AnyObject?
+                    }
+                }
+            }
+            cls = class_getSuperclass(c)
+        }
+        return nil
+    }
+
     func convertRoute(route: Route) -> Any {
         return [
             "distance": route.distance,
@@ -685,6 +758,21 @@ class ExpoMapboxNavigationViewController: UIViewController {
         // Only start active guidance if this instance is still active
         if isActive {
             mapboxNavigation!.tripSession().startActiveGuidance(with: navigationRoutes, startLegIndex: 0)
+        }
+
+        // After layout, sync the native mute button to the current mute state (its toggleMute:
+        // action keys off isSelected) and observe taps to persist the value back to RN.
+        DispatchQueue.main.async { [weak self, weak navigationViewController] in
+            guard let self = self, let navVC = navigationViewController, self.isActive else { return }
+            let muted = ExpoMapboxNavigationViewController.navigationProvider.routeVoiceController.speechSynthesizer.muted
+            guard let muteButton = self.findMuteButton(in: navVC) else {
+                NSLog("[AudibleDirections] mute button NOT found")
+                self.onMuteChange?(["isMuted": muted, "source": "setup-notfound"])
+                return
+            }
+            muteButton.isSelected = muted
+            muteButton.addTarget(self, action: #selector(self.muteButtonTapped(_:)), for: .touchUpInside)
+            self.onMuteChange?(["isMuted": muted, "source": "setup"])
         }
     }
 }

@@ -116,6 +116,7 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
     }
 
     private var isMuted = false
+    private var hasAppliedInitialMute = false
     private var currentCoordinates: List<Point>? = null
     private var currentLocale = Locale.getDefault()
     private var currentWaypointIndices: List<Int>? = null
@@ -146,6 +147,7 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
     private val onRoutesLoaded by EventDispatcher()
     private val onRouteFailedToLoad by EventDispatcher()
     private val onLocationChange by EventDispatcher()
+    private val onMuteChange by EventDispatcher()
 
     private val mapboxNavigation = MapboxNavigationApp.current()
     private var mapboxStyle: Style? = null
@@ -195,6 +197,7 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
                                 if (isMuted) R.drawable.icon_sound else R.drawable.icon_mute
                         )
                 isMuted = !isMuted
+                onMuteChange(mapOf("isMuted" to isMuted))
             }
 
     private val overviewButtonId = 5
@@ -1001,7 +1004,10 @@ class ExpoMapboxNavigationView(context: Context, appContext: AppContext) :
     }
 
     fun setIsMuted(isMutedProp: Boolean?) {
-        if (isMutedProp != null) {
+        // Treated as the INITIAL mute state only; applied once so it does not fight the
+        // native sound button mid-trip (the button and this prop share `isMuted`).
+        if (isMutedProp != null && !hasAppliedInitialMute) {
+            hasAppliedInitialMute = true
             isMuted = isMutedProp
             voiceInstructionsPlayer.volume(SpeechVolume(if (isMuted) 0.0f else 1.0f))
             soundButton
